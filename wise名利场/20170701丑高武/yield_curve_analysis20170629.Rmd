@@ -1,0 +1,493 @@
+---
+title: "愚蠢的收益率曲线分析"
+author: "丑高武"
+date: "2017/6/29"
+output: html_document
+---
+
+# 收益率曲线解释
+
+1. 收益率曲线就是把收益率按照时间轴画出来，关键就在于这个收益率是什么，下图就是一个收益率曲线
+
+```{r,echo=FALSE}
+library(data.table)
+library(ggplot2)
+library(gridExtra)
+# 无聊的数据预处理
+tradeAll             <- fread('data/sample_trade.txt',skip = 1)
+ytmCurve             <- fread('data/sample_ytm_curve.txt')
+spotCurve            <- fread('data/sample_spot_curve.txt')
+ytmCurve[,1]         <- seq(0,30,by = 0.1)
+ytmCurve             <- as.data.table(apply(ytmCurve,2,as.numeric))
+spotCurve[,1]        <- seq(0,30,by = 0.1)
+spotCurve            <- as.data.table(apply(spotCurve,2,as.numeric))
+names(ytmCurve)[1]   <- 'term'
+names(spotCurve)[1]  <- 'term'
+ytmCurve             <- melt(ytmCurve,id.vars = 'term')
+spotCurve            <- melt(spotCurve,id.vars = 'term')
+ytmCurve$variable    <- as.Date(as.character(ytmCurve$variable))
+spotCurve$variable   <- as.Date(as.character(spotCurve$variable))
+tradeAll$交易日期          <- as.Date(tradeAll$交易日期)
+names(tradeAll)[c(1,5,6,27)] <- c('date','ytm','turnover','remainY')
+# 画图
+par(family = 'STHeiti') # windows需要换名字为Heiti
+plot(
+  seq(0,30,by = 0.1),
+  ytmCurve[variable == as.Date('2017-05-04')]$value,
+  type='l',
+  col = 'royalblue1',
+  xlab = '期限',
+  ylab = '收益率'
+  )
+
+```
+
+2. 收益率曲线吧，关键在于这个收益率指的是啥，一般情况而言，有两种收益率，一种是即期收益率，一种是到期收益率
+
+3. 即期收益率，就是对应某个期限的零息票债券利率，比方说3年即期收益率，就是卖你一张3年到期的不付息债券，你愿意出多少钱，然后用这个现值去算收益率，这个收益率比较纯粹，因为它只跟这个期限有关。
+
+4. 到期收益率就更直观，字面意思上理解，指的就是持有该债券到期你能获得的平均收益率，注意，在此处一定是持有到期，因为债券到期必须收敛于面值，因此才能算出到期收益率，如果中途卖出债券，并不一定能获得当时买债券时候计算的到期收益率，由于大部分的债券都付息，因此到期收益率其实是不同时节节点上现金流折现的平均收益率。
+
+5. 市面常用的是到期收益，因为其直观，可以从债券现值和未来现金流中反算出来，类似于implied volatility
+
+$$p_{real} = p_{theory} + \epsilon = \Sigma_{i=1}^{N}\frac{CF_{i}}{(1+r_{i})^{i}}$$
+
+6. 到期收益率最大的问题在于“息票效应”和“平均收益率”，“息票效应”指的是同样剩余期限的债券，他妈的息票率不同，导致到期收益率不同，大家试想一下，在某个时点，市场上只有一条零息票债券曲线，那么每一个付息债券对应的ytm，就是一个多时点利率的平均值，如果零息票债券利率向上倾斜，是不是权重越靠后平均收益率越大。因此在一个对未来预期较好的市场，大家更希望现金流在较远的时点获得，以收取更高的收益率，是为锁定，但这仅仅是静态上的理解
+
+# 收益率曲线的拟合
+
+1. 收益率曲线的拟合有多种方法，由于市场常用ytm，我就仅仅只拟合ytm曲线
+
+2. 一种是中债登用的插值法，在散点之间用多项式函数插值
+
+3. 一种是样条函数拟合法，这个类似于插值，也是在局部进行，但不同于差值，他是在局部找到一个函数穿过散点
+
+4. 一种是整条曲线拟合，找到一个函数形式整条曲线拟合，三种方法其实估计效果差不多。
+
+5. 曲线拟合的好处是得到一条光滑的曲线，在分析曲线形态来确定策略方面有作用，比方说看到曲线倒挂就选择做陡曲线的策略。
+
+# 那么我们来看看中国银行间市场国债收益率曲线的M形态
+
+```{r,echo=FALSE}
+ytmCurve$month <- month(ytmCurve$variable)
+
+g1 <- ggplot() +
+  geom_line(
+    data = ytmCurve[month == 3],
+    aes(
+      x = term,
+      y = value,
+      group = variable
+    ), alpha = 0.5, color = 'royalblue1'
+  ) + theme_bw() + ylim(2,4.5) 
+g2 <- ggplot() +
+  geom_line(
+    data = ytmCurve[month == 4],
+    aes(
+      x = term,
+      y = value,
+      group = variable
+    ), alpha = 0.5, color = 'royalblue1'
+  ) + theme_bw() + ylim(2,4.5) 
+g3 <- ggplot() +
+  geom_line(
+    data = ytmCurve[month == 5],
+    aes(
+      x = term,
+      y = value,
+      group = variable
+    ), alpha = 0.5, color = 'royalblue1'
+  ) + theme_bw() + ylim(2,4.5) 
+g4 <- ggplot() +
+  geom_line(
+    data = ytmCurve[month == 6],
+    aes(
+      x = term,
+      y = value,
+      group = variable
+    ), alpha = 0.5, color = 'royalblue1'
+  ) + theme_bw() + ylim(2,4.5) 
+grid.arrange(g1,g2,g3,g4,ncol=2)
+
+
+```
+
+1. 所以大家看到那个M形状了吗？那就叫做曲线的M形状
+
+2. 为什么这个东西奇怪呢，因为按照道理来讲，越长期限的投资，所要求的收益率越高，为什么呢？
+
+3. 其实这个也很悖论，为什么越长期限的投资要求的收益率越高呢？如果是定期存款，当然是，因为不保证提前支取的收益，如果是什么固定投资，也是，因为没办法提前收款，但是债券不一样，如果不是以配置为目的，买入债券的人，无论是买长债还是短债，都可以在未来卖出，这个未来甚至可以是1天之后，因此你买超过1年的债券，比方说7年和10的债券，除了因为久期和最廉券带来的需求不同，很难说从时间成本上对收益率造成影响。
+
+4. 所谓配置盘和交易盘，就是根据投资债券的性质，配置盘一般是保险等大资金，买了之后持有到期兑付，收的就是到期收益率，不受到利率市场波动的影响。
+
+5. 还有一个东西影响债券市场的收益率，那就是流动性，这个东西在我看来很哲学，哦～fxxk，为什么呢，因为他可以解释很多解释不了的东西，股票收益率解释不了，往流动性的垃圾桶中一装就解释，这个从流动性的测度来看就最明显，一个最有名的测度是amihud，就是价格波动幅度除以成交量，价格波动幅度衡量price impact，成交量衡量market participation，你看这两个东西，都与市场供需分割不开，如果说价格／收益率由供需决定，那么用一个供需的替代变量来解释供需，怎么可能解释不了呢。
+
+6. 流动性有篇文献，关于市场操作也有篇文献，大家有时间可以看一下，我在这不想讲这个问题，我想讲的问题是，流动性在我这有两个定义，第一个定义是市场流动性，第一个定义是微观个券流动性，市场上有小红小黄和小绿，大家都没钱，纷纷卖出手中的债券，这是市场流动性变差了，这里的流动性是池子的水变少了；如果大家有钱，但是都不愿意买小蓝家的债，这是个券的流动性变差了，明明市场上钱很多，但是小蓝家的债交易一笔就能涨停，这是个参与度的问题，我也可以理解为流动性差，但你也可以说那是个券本身的风险溢价导致的，但是风险溢价是多少，怎么衡量又很难讲。
+
+# 休息一下
+
+# 讲了这么多，我们看看主流解释M型曲线形成的原因
+
+1. 原因是什么，流动性，一个主流的解释是，7年期债券比10年期债券流动性差，因此需要一个更高的流动性溢价，我们简单的认为交易量可以代表流动性，看看不同期限的债券交易量情况。
+
+```{r,echo=FALSE}
+# 按交易日统计
+g1 <- ggplot() +
+  geom_bar(
+  data = tradeAll[remainY > 0 &
+  remainY <= 1, .(turnover = sum(turnover)), keyby = .(date)],
+  aes(x = date,
+  y = turnover),
+  stat = 'identity',
+  fill = 'royalblue1'
+  ) + theme_bw() +
+  scale_x_date(
+  breaks = seq(as.Date('2017-03-27'), as.Date('2017-06-27'), by = '1 month'),
+  labels = seq(as.Date('2017-03-27'), as.Date('2017-06-27'), by = '1 month')
+  )
+g2 <- ggplot() +
+  geom_bar(
+  data = tradeAll[remainY > 1 &
+  remainY <= 3, .(turnover = sum(turnover)), keyby = .(date)],
+  aes(x = date,
+  y = turnover),
+  stat = 'identity',
+  fill = 'royalblue1'
+  ) + theme_bw() +
+  scale_x_date(
+  breaks = seq(as.Date('2017-03-27'), as.Date('2017-06-27'), by = '1 month'),
+  labels = seq(as.Date('2017-03-27'), as.Date('2017-06-27'), by = '1 month')
+  )
+g3 <- ggplot() +
+  geom_bar(
+  data = tradeAll[remainY > 3 &
+  remainY <= 5, .(turnover = sum(turnover)), keyby = .(date)],
+  aes(x = date,
+  y = turnover),
+  stat = 'identity',
+  fill = 'royalblue1'
+  ) + theme_bw() +
+  scale_x_date(
+  breaks = seq(as.Date('2017-03-27'), as.Date('2017-06-27'), by = '1 month'),
+  labels = seq(as.Date('2017-03-27'), as.Date('2017-06-27'), by = '1 month')
+  )
+g4 <- ggplot() +
+  geom_bar(
+  data = tradeAll[remainY > 5 &
+  remainY <= 7, .(turnover = sum(turnover)), keyby = .(date)],
+  aes(x = date,
+  y = turnover),
+  stat = 'identity',
+  fill = 'royalblue1'
+  ) + theme_bw() +
+  scale_x_date(
+  breaks = seq(as.Date('2017-03-27'), as.Date('2017-06-27'), by = '1 month'),
+  labels = seq(as.Date('2017-03-27'), as.Date('2017-06-27'), by = '1 month')
+  )
+g5 <- ggplot() +
+  geom_bar(
+  data = tradeAll[remainY > 7 &
+  remainY <= 10, .(turnover = sum(turnover)), keyby = .(date)],
+  aes(x = date,
+  y = turnover),
+  stat = 'identity',
+  fill = 'royalblue1'
+  ) + theme_bw() +
+  scale_x_date(
+  breaks = seq(as.Date('2017-03-27'), as.Date('2017-06-27'), by = '1 month'),
+  labels = seq(as.Date('2017-03-27'), as.Date('2017-06-27'), by = '1 month')
+  )
+g6 <- ggplot() +
+  geom_bar(
+  data = tradeAll[remainY > 10 , .(turnover = sum(turnover)), keyby = .(date)],
+  aes(x = date,
+  y = turnover),
+  stat = 'identity',
+  fill = 'royalblue1'
+  ) + theme_bw() +
+  scale_x_date(
+  breaks = seq(as.Date('2017-03-27'), as.Date('2017-06-27'), by = '1 month'),
+  labels = seq(as.Date('2017-03-27'), as.Date('2017-06-27'), by = '1 month')
+  )
+gridExtra::grid.arrange(g1,g2,g3,g4,g5,g6,ncol=2)
+
+```
+
+```{r,echo=FALSE}
+
+g1 <- ggplot() +
+  geom_bar(
+  data = tradeAll[remainY > 0 &
+  remainY <= 1, .(turnover = sum(turnover)), keyby = .(week(date))],
+  aes(x = week,
+  y = turnover),
+  stat = 'identity',
+  fill = 'royalblue1'
+  ) + theme_bw()
+g2 <- ggplot() +
+  geom_bar(
+  data = tradeAll[remainY > 1 &
+  remainY <= 3, .(turnover = sum(turnover)), keyby = .(week(date))],
+  aes(x = week,
+  y = turnover),
+  stat = 'identity',
+  fill = 'royalblue1'
+  ) + theme_bw() 
+g3 <- ggplot() +
+  geom_bar(
+  data = tradeAll[remainY > 3 &
+  remainY <= 5, .(turnover = sum(turnover)), keyby = .(week(date))],
+  aes(x = week,
+  y = turnover),
+  stat = 'identity',
+  fill = 'royalblue1'
+  ) + theme_bw() 
+g4 <- ggplot() +
+  geom_bar(
+  data = tradeAll[remainY > 5 &
+  remainY <= 7, .(turnover = sum(turnover)), keyby = .(week(date))],
+  aes(x = week,
+  y = turnover),
+  stat = 'identity',
+  fill = 'royalblue1'
+  ) + theme_bw()
+g5 <- ggplot() +
+  geom_bar(
+  data = tradeAll[remainY > 7 &
+  remainY <= 10, .(turnover = sum(turnover)), keyby = .(week(date))],
+  aes(x = week,
+  y = turnover),
+  stat = 'identity',
+  fill = 'royalblue1'
+  ) + theme_bw()
+g6 <- ggplot() +
+  geom_bar(
+  data = tradeAll[remainY > 10 , .(turnover = sum(turnover)), keyby = .(week(date))],
+  aes(x = week,
+  y = turnover),
+  stat = 'identity',
+  fill = 'royalblue1'
+  ) + theme_bw() 
+gridExtra::grid.arrange(g1,g2,g3,g4,g5,g6,ncol=2)
+
+```
+
+```{r,echo=FALSE}
+  
+  whichytm <- 10
+  work1 <- ytmCurve[term == whichytm]
+  g1 <- ggplot() +
+    geom_point(
+      data = work1,
+      aes(
+        x = variable,
+        y = value,
+        group = 1
+      ), color = 'royalblue1'
+    ) + 
+    geom_line(
+      data = work1,
+      aes(
+        x = variable,
+        y = value,
+        group = 1
+      ), color = 'royalblue1'
+    ) + theme_bw() +
+    scale_x_date(breaks = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'),
+                 labels = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'))
+  
+  lb       <- 7
+  ub       <- 10
+  work2    <- tradeAll[remainY > lb & remainY <= ub]
+  
+  g2 <- ggplot() +
+    geom_bar(
+      data = work2[,.(turnover=sum(turnover)),keyby=.(date)],
+      aes(
+        x = date,
+        y = turnover
+      ), stat = 'identity', fill = 'royalblue1'
+    ) + theme_bw() + 
+    scale_x_date(breaks = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'),
+                 labels = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'))
+  
+  gridExtra::grid.arrange(g1,g2)
+
+whichytm <- 7
+  work1 <- ytmCurve[term == whichytm]
+  g1 <- ggplot() +
+    geom_point(
+      data = work1,
+      aes(
+        x = variable,
+        y = value,
+        group = 1
+      ), color = 'royalblue1'
+    ) + 
+    geom_line(
+      data = work1,
+      aes(
+        x = variable,
+        y = value,
+        group = 1
+      ), color = 'royalblue1'
+    ) + theme_bw() +
+    scale_x_date(breaks = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'),
+                 labels = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'))
+  
+  lb       <- 5
+  ub       <- 7
+  work2    <- tradeAll[remainY > lb & remainY <= ub]
+  
+  g2 <- ggplot() +
+    geom_bar(
+      data = work2[,.(turnover=sum(turnover)),keyby=.(date)],
+      aes(
+        x = date,
+        y = turnover
+      ), stat = 'identity', fill = 'royalblue1'
+    ) + theme_bw() + 
+    scale_x_date(breaks = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'),
+                 labels = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'))
+  
+  gridExtra::grid.arrange(g1,g2)
+  
+  whichytm <- 5
+  work1 <- ytmCurve[term == whichytm]
+  g1 <- ggplot() +
+    geom_point(
+      data = work1,
+      aes(
+        x = variable,
+        y = value,
+        group = 1
+      ), color = 'royalblue1'
+    ) + 
+    geom_line(
+      data = work1,
+      aes(
+        x = variable,
+        y = value,
+        group = 1
+      ), color = 'royalblue1'
+    ) + theme_bw() +
+    scale_x_date(breaks = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'),
+                 labels = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'))
+  
+  lb       <- 3
+  ub       <- 5
+  work2    <- tradeAll[remainY > lb & remainY <= ub]
+  
+  g2 <- ggplot() +
+    geom_bar(
+      data = work2[,.(turnover=sum(turnover)),keyby=.(date)],
+      aes(
+        x = date,
+        y = turnover
+      ), stat = 'identity', fill = 'royalblue1'
+    ) + theme_bw() + 
+    scale_x_date(breaks = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'),
+                 labels = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'))
+  
+  gridExtra::grid.arrange(g1,g2)
+```
+
+1. 从交易量的角度来说，我个人并不认为这是导致倒挂的原因，我反倒认为对不同期限债券的配置导致了这样的倒挂
+
+2. 从利差的角度来看，如下面的图
+
+```{r,echo=FALSE}
+
+ggplot() +
+  geom_point(
+    aes(
+      x = unique(ytmCurve$variable),
+      y = ytmCurve[term == 10]$value - ytmCurve[term == 7]$value,
+      group = 1
+    ), color = 'royalblue1'
+  ) + 
+  geom_line(
+      aes(
+        x = unique(ytmCurve$variable),
+        y = ytmCurve[term == 10]$value - ytmCurve[term == 7]$value,
+        group = 1
+      ), color = 'royalblue1'
+    ) + theme_bw() +
+  scale_x_date(breaks = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'),
+               labels = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'))
+
+ggplot() +
+  geom_point(
+    aes(
+      x = unique(ytmCurve$variable),
+      y = ytmCurve[term == 10]$value - ytmCurve[term == 5]$value,
+      group = 1
+    ), color = 'royalblue1'
+  ) + 
+  geom_line(
+      aes(
+        x = unique(ytmCurve$variable),
+        y = ytmCurve[term == 10]$value - ytmCurve[term == 5]$value,
+        group = 1
+      ), color = 'royalblue1'
+    ) + theme_bw() +
+  scale_x_date(breaks = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'),
+               labels = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'))
+  
+
+ggplot() +
+  geom_point(
+    aes(
+      x = unique(ytmCurve$variable),
+      y = ytmCurve[term == 10]$value - ytmCurve[term == 3]$value,
+      group = 1
+    ), color = 'royalblue1'
+  ) + 
+  geom_line(
+      aes(
+        x = unique(ytmCurve$variable),
+        y = ytmCurve[term == 10]$value - ytmCurve[term == 3]$value,
+        group = 1
+      ), color = 'royalblue1'
+    ) + theme_bw() +
+  scale_x_date(breaks = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'),
+               labels = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'))
+
+
+ggplot() +
+  geom_point(
+    aes(
+      x = unique(ytmCurve$variable),
+      y = ytmCurve[term == 10]$value - ytmCurve[term == 1]$value,
+      group = 1
+    ), color = 'royalblue1'
+  ) + 
+  geom_line(
+      aes(
+        x = unique(ytmCurve$variable),
+        y = ytmCurve[term == 10]$value - ytmCurve[term == 1]$value,
+        group = 1
+      ), color = 'royalblue1'
+    ) + theme_bw() +
+  scale_x_date(breaks = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'),
+               labels = seq(as.Date('2017-03-27'),as.Date('2017-06-27'),by = '1 month'))
+```
+
+3. 从利差的角度来说，7年与10年倒是有类似于均值回复的过程，但是1，3，5和10年一直在缩，虽然倒挂持续不久，但是曲线太平坦了，长短债怎么区分？
+
+# 从曲线的平坦来说说曲线的做陡峭策略
+
+1. 有哪些支撑曲线平坦的理由
+
+2. 买一支债券，如果3年期和10年期到期收益率一样，你会怎么选？分情况，如果对未来经济没有信心，认为未来收益率会下降，则会选择买10年期的锁定收益率，并且获得杆杠效应，如果认为对未来经济有信心，认为利率会上涨，则会买短久期，一方面避开长久期的高杆杠，一方面不希望锁定长期的收益率，当然这个推论对于交易资金又很弱，投机资金只考虑明天利率的涨跌。
+
+3. 短期资金紧张会不会影响收益率曲线，会，但我认为应该是平行移动，如果大家都没钱的话，都会去卖债，卖1、3、5、7、10债的区别完全取决于投资者本身的资产结构，比方说我7债拿多了，是不是要抛售点，但这个就很难说
+
+4. 如果看到1、3、5和10的利差没了，至少反应这些债被抛得更猛烈，可能是由于国债期货，但为什么不愿意持有短久期呢，难道是大家等着利率上涨？
+
+5. 曲线做陡，要么长端上行，要么短端下行，最好的策略就是买短卖长，短端真的就反应资金利率吗，1年内的我认，1年以上的我不太认。
+
+
+
+
+
